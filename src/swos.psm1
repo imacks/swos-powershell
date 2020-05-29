@@ -56,42 +56,44 @@ function Invoke-SwosRequest
 
     $rawResponse = Invoke-WebRequest $queryUrl -UseBasicParsing -Credential $Credential | select -expand Content
 
+    # should always return {...} or [...]
     if ($rawResponse.Length -lt 2) {
         throw 'Invalid response from device'
     }
-
     if (($rawResponse[0] -ne '{') -and ($rawResponse[0] -ne '[')) {
         throw 'Unexpected response from device'
     }
-
     if (($rawResponse[0] -eq '{') -and ($rawResponse[$rawResponse.Length - 1] -ne '}') -or 
         ($rawResponse[0] -eq '[') -and ($rawResponse[$rawResponse.Length - 1] -ne ']')
     ) {
         throw 'Malformed response from device'
     }
 
-    # make suitable for json parser
+    # quote the keys
     $rawResponse = $rawResponse -replace '{([a-z]+):', '{"$1":'
     $rawResponse = $rawResponse -replace ',([a-z]+):', ',"$1":'
 
+    # transform hex 0xabc -> "hex:abc"
     $rawResponse = $rawResponse -replace ':0x([0-9a-f]+),', ':"hex:$1",'
     $rawResponse = $rawResponse -replace ':\[0x([0-9a-f]+),', ':["hex:$1",'
     $rawResponse = $rawResponse -replace '0x([0-9a-f]+),', '"hex:$1",'
     $rawResponse = $rawResponse -replace '0x([0-9a-f]+)\]', '"hex:$1"]'
     $rawResponse = $rawResponse -replace '0x([0-9a-f]+)}', '"hex:$1"}'
 
+    # transform quote strings to double quote
     $rawResponse = $rawResponse.Replace(":'", ':"').Replace("',", '",')
     $rawResponse = $rawResponse.Replace(",'", ',"')
     $rawResponse = $rawResponse.Replace("['", '["').Replace("']", '"]')
     $rawResponse = $rawResponse.Replace("{'", '{"').Replace("'}", '"}')
 
+    # convert hex to int
     $allHexValues = [regex]::Matches($rawResponse, '"hex:[0-9a-f]+"') | select -expand Value -Unique
     $allHexValues | ForEach-Object {
         $intValue = [int]('0x' + $_.Substring(1, $_.Length - 2).Substring('hex:'.Length))
         $rawResponse = $rawResponse.Replace($_, $intValue)
     }
 
-    # convert hex to int
+    # json ready!
     ConvertFrom-Json $rawResponse
 }
 
